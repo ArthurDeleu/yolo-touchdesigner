@@ -24,7 +24,7 @@ For the easiest setup, download the latest release above and use the Patreon hel
 
 The core `yolo.tox` and its corresponding source code are also available in this repository under AGPL-3.0. The open-source version provides the underlying YOLO integration and raw output, but does not include all of the optional visualization helpers and examples available through Patreon.
 
-1. Download the toolkit from [Patreon](https://www.patreon.com/posts/yolo-plugin-pose-139729511) or the open-source `.tox` from this repository.
+1. Download the toolkit from [Patreon](https://www.patreon.com/posts/yolo26-plugin-165125985) or the open-source `.tox` from this repository.
 2. Place the .tox file next you project .toe file inside a folder called toxes so TouchDesigner can reference it locally. ⚠️NOTE if you don't do this saving your project will take an eternity.
 3. Drop it into your TouchDesigner project. Then drop in any of the additional visualization helpers.
 
