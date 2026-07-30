@@ -18,12 +18,14 @@ Welcome! This project brings [Ultralytics YOLO26 and YOLO11](https://github.com/
 
 ### Get Started
 
-For the easiest setup, download the current toolkit from Patreon. It includes the ready-to-use plugin, visualization and control helpers, example networks, and setup resources.
+[![Download Latest Yolo.tox Release](https://img.shields.io/badge/Download_Latest_Release_%E2%86%93-blank?style=for-the-badge)](https://github.com/torinmb/yolo-touchdesigner/releases/latest/download/yolo.tox)
+
+For the easiest setup, download the latest release above and use the Patreon helper visualization toolkit. It includes, visualization and control helpers, example networks.
 
 The core `yolo.tox` and its corresponding source code are also available in this repository under AGPL-3.0. The open-source version provides the underlying YOLO integration and raw output, but does not include all of the optional visualization helpers and examples available through Patreon.
 
 1. Download the toolkit from [Patreon](https://www.patreon.com/posts/yolo-plugin-pose-139729511) or the open-source `.tox` from this repository.
-2. Place the .tox file next you project .toe file so TouchDesigner can reference it locally. ⚠️NOTE if you don't do this saving your project will take an eternity.
+2. Place the .tox file next you project .toe file inside a folder called toxes so TouchDesigner can reference it locally. ⚠️NOTE if you don't do this saving your project will take an eternity.
 3. Drop it into your TouchDesigner project. Then drop in any of the additional visualization helpers.
 
 ## Using This Plugin in Your Projects
