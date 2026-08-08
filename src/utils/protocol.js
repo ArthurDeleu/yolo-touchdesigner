@@ -11,6 +11,51 @@ import {
     flipYKeypointsNorm,
 } from "./math.js";
 
+export const BINARY_TYPE_SEGMENTATION = 11;
+export const BINARY_TYPE_DEPTH = 12;
+export const BINARY_DTYPE_FLOAT32 = 2;
+export const BINARY_LAYOUT_HW = 2;
+export const BINARY_PROTOCOL_VERSION = 1;
+export const BINARY_HEADER_BYTES = 16;
+
+export function formatFloatMapBinary(
+    type,
+    width,
+    height,
+    data,
+    seq,
+    frame,
+) {
+    if (!(data instanceof Float32Array)) {
+        throw new TypeError("Binary float-map payload must be a Float32Array");
+    }
+    if (data.length !== width * height) {
+        throw new RangeError(
+            `Float-map payload length ${data.length} does not match ${width}x${height}`,
+        );
+    }
+    if (width > 0xffff || height > 0xffff) {
+        throw new RangeError("Binary float-map dimensions exceed uint16");
+    }
+
+    const buf = new Uint8Array(BINARY_HEADER_BYTES + data.byteLength);
+    const dv = new DataView(buf.buffer);
+    dv.setUint8(0, type);
+    dv.setUint8(1, BINARY_DTYPE_FLOAT32);
+    dv.setUint8(2, BINARY_LAYOUT_HW);
+    dv.setUint8(3, BINARY_PROTOCOL_VERSION);
+    dv.setUint16(4, height, true);
+    dv.setUint16(6, width, true);
+    dv.setUint32(8, seq >>> 0, true);
+    dv.setUint32(12, frame >>> 0, true);
+
+    buf.set(
+        new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+        BINARY_HEADER_BYTES,
+    );
+    return buf.buffer;
+}
+
 export function formatPredictions(
     frameId,
     seq,

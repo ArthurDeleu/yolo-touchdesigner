@@ -151,26 +151,55 @@ def onWebSocketReceiveText(webServerDAT, client, data):
 	return
 
 segmentation_data = op('../segmentation_data')
+depth_data = op('../depth_data')
+
+BINARY_HEADER_BYTES = 16
+TYPE_SEGMENTATION = 11
+TYPE_DEPTH = 12
+DTYPE_FLOAT32 = 2
+LAYOUT_HW = 2
+PROTOCOL_VERSION = 1
+
+def _copy_float_map(target, stream_name, payload, width, height):
+	if target is None or width <= 0 or height <= 0:
+		return
+
+	expected_bytes = width * height * 4
+	if len(payload) != expected_bytes:
+		return
+
+	try:
+		# The wire format is explicitly little-endian float32, HWC with one channel.
+		arr = np.frombuffer(payload, dtype='<f4', count=width * height).reshape((height, width, 1))
+		target.copyNumpyArray(arr)
+	except Exception as e:
+		debug('Failed to receive {} binary map: {}'.format(stream_name, e))
+
 def onWebSocketReceiveBinary(webServerDAT, client, data):
-    width = int.from_bytes(data[0:4], byteorder='little')
-    height = int.from_bytes(data[4:8], byteorder='little')
-    payload = data[8:]
+	if len(data) < 8:
+		return
 
-    # Must be a multiple of 4 bytes for float32
-    if len(payload) % 4 != 0:
-        return
+	# Versioned float-map header: <BBBBHHII
+	if len(data) >= BINARY_HEADER_BYTES:
+		msg_type, dtype, layout, version, height, width, _seq, _source_frame = struct.unpack_from('<BBBBHHII', data, 0)
+		if (
+			msg_type in (TYPE_SEGMENTATION, TYPE_DEPTH)
+			and dtype == DTYPE_FLOAT32
+			and layout == LAYOUT_HW
+			and version == PROTOCOL_VERSION
+		):
+			payload = memoryview(data)[BINARY_HEADER_BYTES:]
+			if msg_type == TYPE_SEGMENTATION:
+				_copy_float_map(segmentation_data, 'segmentation', payload, width, height)
+			else:
+				_copy_float_map(depth_data, 'depth', payload, width, height)
+			return
 
-    flat_array = np.frombuffer(payload, dtype=np.float32)
-    
-    # Reshape to image (Height, Width, 1 channel)
-    arr = flat_array.reshape((height, width, 1))
-    
-    # Copy to Script TOP
-    try:
-        segmentation_data.copyNumpyArray(arr)
-    except Exception as e:
-        pass
-    return
+	# Legacy segmentation packet: uint32 width, uint32 height, then FP32.
+	width, height = struct.unpack_from('<II', data, 0)
+	payload = memoryview(data)[8:]
+	_copy_float_map(segmentation_data, 'segmentation', payload, width, height)
+	return
 
 def onWebSocketReceivePing(webServerDAT, client, data):
 	webServerDAT.webSocketSendPong(client, data=data)

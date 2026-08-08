@@ -82,6 +82,10 @@ export let ENABLE_SEG = getBool(
     ["Segmentationenabled", "segmentation", "SegmentationEnabled"],
     false,
 );
+export let ENABLE_DEPTH = getBool(
+    ["Depthenabled", "depth", "DepthEnabled"],
+    false,
+);
 export let PERSON_SEG_ONLY = getBool(
     ["Personsegonly", "PoseSegOnly", "personSegOnly"],
     false,
@@ -96,6 +100,10 @@ export let MODEL_SEG_KEY = getStr(
     ["Segmentationmodel", "SegmentationModel"],
     "yolo26n-seg",
 );
+export let MODEL_DEPTH_KEY = getStr(
+    ["Depthmodel", "DepthModel"],
+    "yolo26n-depth",
+);
 
 // Legacy single `model=` inference logic
 const legacyModel = qs.get("model");
@@ -103,7 +111,14 @@ const anyToggleProvided = [
     "Poseenabled",
     "pose",
     "Objecttrackingenabled",
+    "ObjectTrackingEnabled",
     "detect",
+    "Segmentationenabled",
+    "segmentation",
+    "SegmentationEnabled",
+    "Depthenabled",
+    "depth",
+    "DepthEnabled",
 ].some((k) => qs.has(k));
 
 if (legacyModel && !anyToggleProvided) {

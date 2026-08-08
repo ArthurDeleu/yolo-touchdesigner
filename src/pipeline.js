@@ -6,13 +6,20 @@ import {
     runDetect,
     runPose,
     runSeg,
+    runDepth,
     detSession,
     poseSession,
     segSession,
+    depthSession,
     device,
 } from "./inference/onnx.js";
 import { trackerDet, trackerPose } from "./state.js";
-import { formatPredictions } from "./utils/protocol.js";
+import {
+    BINARY_TYPE_DEPTH,
+    BINARY_TYPE_SEGMENTATION,
+    formatFloatMapBinary,
+    formatPredictions,
+} from "./utils/protocol.js";
 import { setStatus } from "./ui.js";
 
 export async function runInferencePipeline(
@@ -29,10 +36,12 @@ export async function runInferencePipeline(
     let keepDet = [];
     let keepPose = [];
     let segResult = null;
+    let depthResult = null;
 
     if (detSession) keepDet = await runDetect(inputTensor);
     if (poseSession) keepPose = await runPose(inputTensor);
     if (segSession) segResult = await runSeg(inputTensor);
+    if (depthSession) depthResult = await runDepth(inputTensor);
 
     // Track frame stats
     window._frameCount = (window._frameCount || 0) + 1;
@@ -40,7 +49,9 @@ export async function runInferencePipeline(
         const detC = keepDet ? keepDet.length : 0;
         const poseC = keepPose ? keepPose.length : 0;
         const backend = device ? "WebGPU" : "CPU";
-        setStatus(`Pipeline: det=${detC} pose=${poseC} | frame=${window._frameCount} | ${backend}`);
+        setStatus(
+            `Pipeline: det=${detC} pose=${poseC} seg=${segResult ? 1 : 0} depth=${depthResult ? 1 : 0} | frame=${window._frameCount} | ${backend}`,
+        );
     }
 
     // 2. Update Trackers
@@ -63,22 +74,31 @@ export async function runInferencePipeline(
         // Segmentation Binary
         if (segResult) {
             const { width, height, data } = segResult;
-            const headerSize = 8;
-            const payloadBytes = data.byteLength;
-            const totalSize = headerSize + payloadBytes;
-            const buf = new Uint8Array(totalSize);
-            const dv = new DataView(buf.buffer);
-
-            dv.setUint32(0, width, true); // Little Endian
-            dv.setUint32(4, height, true);
-
-            const floatView = new Uint8Array(
-                data.buffer,
-                data.byteOffset,
-                data.byteLength,
+            sender(
+                formatFloatMapBinary(
+                    BINARY_TYPE_SEGMENTATION,
+                    width,
+                    height,
+                    data,
+                    seq,
+                    frameId,
+                ),
             );
-            buf.set(floatView, 8);
-            sender(buf.buffer);
+        }
+
+        // Raw metric Depth Binary (FP32 meters; no normalization/inversion)
+        if (depthResult) {
+            const { width, height, data } = depthResult;
+            sender(
+                formatFloatMapBinary(
+                    BINARY_TYPE_DEPTH,
+                    width,
+                    height,
+                    data,
+                    seq,
+                    frameId,
+                ),
+            );
         }
 
         // Standard JSON
@@ -91,8 +111,8 @@ export async function runInferencePipeline(
         } else if (poseSession) {
             delete msg.yolo;
             sender({ ...msg, type: "yolo_pose", predictions: msg.yolo_pose });
-        } else if (segSession) {
-            // Segmentation only mode: Send empty detections to keep protocol alive
+        } else if (segSession || depthSession) {
+            // Dense-output-only mode: keep flow control and JSON protocol alive.
             delete msg.yolo_pose;
             sender({ ...msg, type: "yolo", predictions: [] });
         }

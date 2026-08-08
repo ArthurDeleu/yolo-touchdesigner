@@ -17,9 +17,11 @@ import {
     MODEL_DETECT_KEY,
     MODEL_POSE_KEY,
     MODEL_SEG_KEY,
+    MODEL_DEPTH_KEY,
     ENABLE_DET,
     ENABLE_POSE,
     ENABLE_SEG,
+    ENABLE_DEPTH,
     USE_CPU,
 } from "../config.js";
 import {
@@ -43,6 +45,7 @@ export let detSession = null;
 export let detNmsSession = null;
 export let poseSession = null;
 export let segSession = null;
+export let depthSession = null;
 export let device = null;
 export let IS_OBB = false;
 export let IS_V26 = false;
@@ -182,6 +185,15 @@ export async function initSessions(baseURL) {
     if (ENABLE_SEG) {
         const path = `${baseURL}models/${MODEL_SEG_KEY}.onnx`;
         segSession = await ort.InferenceSession.create(path, {
+            executionProviders: providers,
+            graphOptimizationLevel: "all",
+        });
+    }
+
+    // 2c. Depth Session
+    if (ENABLE_DEPTH) {
+        const path = `${baseURL}models/${MODEL_DEPTH_KEY}.onnx`;
+        depthSession = await ort.InferenceSession.create(path, {
             executionProviders: providers,
             graphOptimizationLevel: "all",
         });
@@ -360,4 +372,46 @@ export async function runSeg(input, frameSize = null) {
         inputWidth,
         inputHeight,
     );
+}
+
+export async function runDepth(input) {
+    if (!depthSession) return null;
+
+    const outs = await depthSession.run({
+        [depthSession.inputNames[0]]: input,
+    });
+    const depthT = outs[depthSession.outputNames[0]];
+    if (!depthT) return null;
+
+    // Exported YOLO26 depth models return [B, 1, H, W] FP32 meters.
+    // Accept [B, H, W] as a defensive fallback for compatible exports.
+    const dims = depthT.dims || [];
+    let height;
+    let width;
+    if (dims.length === 4 && dims[0] === 1 && dims[1] === 1) {
+        height = dims[2];
+        width = dims[3];
+    } else if (dims.length === 3 && dims[0] === 1) {
+        height = dims[1];
+        width = dims[2];
+    } else {
+        throw new Error(
+            `Unsupported depth output shape: [${dims.join(", ")}]`,
+        );
+    }
+
+    const rawData = depthT.getData
+        ? await depthT.getData()
+        : depthT.data;
+    const data =
+        rawData instanceof Float32Array
+            ? rawData
+            : new Float32Array(rawData);
+    if (data.length !== width * height) {
+        throw new Error(
+            `Depth output length ${data.length} does not match ${width}x${height}`,
+        );
+    }
+
+    return { width, height, data };
 }
