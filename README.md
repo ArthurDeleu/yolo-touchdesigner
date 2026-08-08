@@ -10,6 +10,7 @@ Welcome! This project brings [Ultralytics YOLO26 and YOLO11](https://github.com/
 - **YOLO26 Multi Person Pose Tracking** – supports both YOLO26 Pose and YOLO11 Pose for multi-person body keypoints, joints, and persistent IDs
 - **YOLO26 OBB + VisDrone** – oriented bounding boxes plus aerial/security-focused detection for rotated objects and drone footage
 - **YOLO26 Segmentation** – YOLO26 segmentation support for mask-based output workflows
+- **YOLO26 Monocular Depth (real-world distance in meters)** – dense per-pixel depth estimation from a single RGB camera
 - **YOLO11 Face + Small Models** – lightweight YOLO11 face tracking and YOLO11 small model support for faster deployments
 - **Backwards Compatible** – detection and pose workflows remain compatible with existing YOLO11 models; segmentation is the new addition
 - **Drop-in Component** – packaged as a `.tox` file you can load directly in TouchDesigner
