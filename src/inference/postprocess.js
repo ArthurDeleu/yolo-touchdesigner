@@ -7,8 +7,26 @@ import {
     INPUT_H,
     PERSON_SEG_ONLY,
     SEG_DECAY_LIMIT,
+    SEG_PACK_MODE,
+    SEG_ID_WRAP,
+    SEG_ID_BASE,
 } from "../config.js";
 import { iou } from "../utils/math.js";
+import { trackerSeg } from "../state.js";
+import { reportClientError } from "../utils/report.js";
+
+const _dimsOf = (outs, names) => names.map((n) => `${n}${JSON.stringify(outs[n]?.dims)}`).join(" ");
+let _segFirstOk = false;
+
+// Integer part of the packed seg value: tracked instance id or class id.
+// Output is always >= 0 so that packed = packId + 1 + alpha leaves 0 = background.
+function segPackId(det) {
+    if (SEG_PACK_MODE === "instance") {
+        const span = SEG_ID_WRAP - SEG_ID_BASE;
+        return span > 0 ? SEG_ID_BASE + (det.id % span) : SEG_ID_BASE + det.id;
+    }
+    return det.label;
+}
 
 function decodeYOLO_or_OBB(tensor, thr, topk, isObb, W = INPUT_W, H = INPUT_H) {
     const d = tensor.data;
@@ -394,7 +412,7 @@ function initSegPipeline(device, MW, MH, MaskC) {
     const shaderCode = `
         struct Det {
             box : vec4<f32>,
-            clsID : f32,
+            packID : f32,   // instance id or class id, see segPackId()
             pad1 : f32,
             pad2 : f32,
             pad3 : f32,
@@ -464,7 +482,7 @@ function initSegPipeline(device, MW, MH, MaskC) {
                     let incomingAlphaVal = cleanAlpha * 0.99;
 
                     if (incomingAlphaVal > currentAlpha) {
-                        currentVal = det.clsID + 1.0 + incomingAlphaVal;
+                        currentVal = det.packID + 1.0 + incomingAlphaVal;
                         currentID_coded = floor(currentVal);
                         currentAlpha = incomingAlphaVal;
                     } else if (currentID_coded > 0.0) {
@@ -516,7 +534,10 @@ export async function decodeYOLOSeg(
         if (t.dims.length === 4) protoT = t;
         else if (t.dims.length === 3) detT = t;
     }
-    if (!detT || !protoT) return null;
+    if (!detT || !protoT) {
+        reportClientError("seg-null:no-det-or-proto-tensor", _dimsOf(outs, outputNames));
+        return null;
+    }
 
     const pDims = protoT.dims; // [1, 32, MH, MW]
     const MH = pDims[2],
@@ -554,8 +575,71 @@ export async function decodeYOLOSeg(
                 });
             }
         }
+    } else if (dDims.length === 3 && Math.max(dDims[1], dDims[2]) > 4 + MaskC) {
+        // YOLOv8 / YOLO11 anchor-based seg head (no built-in NMS):
+        //   [1, 4 + nc + MaskC, N]  (channels-first, Ultralytics default; N = 8400 @ 640)
+        //   [1, N, 4 + nc + MaskC]  (channels-last, some exporters)
+        // Per anchor: cx, cy, w, h (pixels), nc class scores (sigmoid applied
+        // at export), then MaskC prototype coefficients.
+        const channelsFirst = dDims[1] < dDims[2];
+        const C = channelsFirst ? dDims[1] : dDims[2];
+        const N = channelsFirst ? dDims[2] : dDims[1];
+        const nc = C - 4 - MaskC;
+        if (nc <= 0) {
+            reportClientError("seg-null:nc<=0", _dimsOf(outs, outputNames));
+            return null;
+        }
+        const get = channelsFirst
+            ? (c, i) => dData[c * N + i]
+            : (c, i) => dData[i * C + c];
+        const coeffStart = 4 + nc;
+
+        for (let i = 0; i < N; i++) {
+            let bestC = -1,
+                bestS = -1;
+            for (let c = 4; c < coeffStart; c++) {
+                const s = get(c, i);
+                if (s > bestS) {
+                    bestS = s;
+                    bestC = c - 4;
+                }
+            }
+            if (bestS <= scoreThr) continue;
+            if (PERSON_SEG_ONLY && bestC !== 0) continue;
+
+            const cx = get(0, i);
+            const cy = get(1, i);
+            const w = get(2, i);
+            const h = get(3, i);
+
+            // Coefficients are strided across anchors in channels-first
+            // layout, so gather them into a contiguous array (the WebGPU
+            // path does detsData.set(coeffs) and needs a real Float32Array).
+            const coeffs = new Float32Array(MaskC);
+            for (let c = 0; c < MaskC; c++) coeffs[c] = get(coeffStart + c, i);
+
+            dets.push({
+                box: [cx - w * 0.5, cy - h * 0.5, w, h],
+                label: bestC,
+                score: bestS,
+                coeffs,
+            });
+        }
+
+        // Match the YOLO26 head's candidate budget (300) before NMS so a
+        // low threshold on a busy frame cannot blow up the O(n^2) NMS below.
+        if (dets.length > 300) {
+            dets.sort((a, b) => b.score - a.score);
+            dets.length = 300;
+        }
     } else {
+        reportClientError("seg-null:unrecognised-head-layout", `MaskC=${MaskC} ${_dimsOf(outs, outputNames)}`);
         return null;
+    }
+
+    if (!_segFirstOk) {
+        _segFirstOk = true;
+        reportClientError("info:seg-first-decode", `dets=${dets.length} proto=${MW}x${MH}x${MaskC} device=${device ? "webgpu" : "cpu"} ${_dimsOf(outs, outputNames)}`);
     }
 
     if (dets.length === 0) {
@@ -591,6 +675,16 @@ export async function decodeYOLOSeg(
     // Using 0.45 IoU threshold (standard YOLO value)
     dets = nmsPerClass(dets, 0.45, topk);
 
+    // --- INSTANCE IDENTITY ---
+    // The model gives one mask per detection but no identity across frames:
+    // detection order is arbitrary and two persons share label 0. Matching
+    // this frame's boxes to last frame's tracks by IoU gives each body a
+    // stable id that survives until the track is lost. `coeffs` ride along
+    // through IoUTracker._copyExtras, so the mask decode below is unchanged.
+    if (SEG_PACK_MODE === "instance") {
+        dets = trackerSeg.update(dets);
+    }
+
     // Sort by area descending (Painter's Algorithm approximation)
     // Large objects (background) first, Small objects (foreground) last.
     dets.sort((a, b) => b.box[2] * b.box[3] - a.box[2] * a.box[3]);
@@ -604,7 +698,7 @@ export async function decodeYOLOSeg(
         const MH_MW = MH * MW;
 
         for (let k = 0; k < dets.length; k++) {
-            const clsID = dets[k].label;
+            const packID = segPackId(dets[k]);
             const coeffs = dets[k].coeffs;
             const box = dets[k].box;
 
@@ -640,7 +734,7 @@ export async function decodeYOLOSeg(
                     const incomingAlphaVal = cleanAlpha * 0.99;
 
                     if (incomingAlphaVal > currentAlpha) {
-                        outMap[i] = clsID + 1.0 + incomingAlphaVal;
+                        outMap[i] = packID + 1.0 + incomingAlphaVal;
                     } else if (currentID_coded > 0) {
                         currentAlpha *= 1.0 - alpha;
                         outMap[i] = currentID_coded + currentAlpha;
@@ -672,7 +766,7 @@ export async function decodeYOLOSeg(
         detsData[offset + 1] = d.box[1];
         detsData[offset + 2] = d.box[0] + d.box[2]; // convert W back to X2 for the shader bounds check
         detsData[offset + 3] = d.box[1] + d.box[3]; // convert H back to Y2 for the shader bounds check
-        detsData[offset + 4] = d.label;
+        detsData[offset + 4] = segPackId(d);
         detsData.set(d.coeffs, offset + 8);
     }
     device.queue.writeBuffer(segDetsBuffer, 0, detsData);

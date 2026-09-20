@@ -171,7 +171,9 @@ def _copy_float_map(target, stream_name, payload, width, height):
 	try:
 		# The wire format is explicitly little-endian float32, HWC with one channel.
 		arr = np.frombuffer(payload, dtype='<f4', count=width * height).reshape((height, width, 1))
-		target.copyNumpyArray(arr)
+		# TD 2025+: see patch_seg_receiver.py -- copy must happen inside the Script TOP's onCook
+		target.store('pending_map', arr.copy())
+		target.cook(force=True)
 	except Exception as e:
 		debug('Failed to receive {} binary map: {}'.format(stream_name, e))
 

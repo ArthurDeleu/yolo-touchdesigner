@@ -21,6 +21,8 @@ import {
     formatPredictions,
 } from "./utils/protocol.js";
 import { setStatus } from "./ui.js";
+import { reportClientError } from "./utils/report.js";
+let _segNullFrames = 0;
 
 export async function runInferencePipeline(
     inputTensor,
@@ -40,7 +42,11 @@ export async function runInferencePipeline(
 
     if (detSession) keepDet = await runDetect(inputTensor);
     if (poseSession) keepPose = await runPose(inputTensor);
-    if (segSession) segResult = await runSeg(inputTensor);
+    if (segSession) {
+        segResult = await runSeg(inputTensor);
+        if (!segResult && ++_segNullFrames === 5)
+            reportClientError("seg-null:runSeg", "5 frames with seg session but no seg result (see seg-null:* report before this one)");
+    }
     if (depthSession) depthResult = await runDepth(inputTensor);
 
     // Track frame stats

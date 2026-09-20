@@ -8,7 +8,10 @@ import {
     DET_TRK_TTL,
     POSE_TRK_IOU,
     POSE_TRK_TTL,
+    SEG_TRK_IOU,
+    SEG_TRK_TTL,
 } from "./config.js";
 
 export const trackerDet = new IoUTracker(DET_TRK_IOU, DET_TRK_TTL);
 export const trackerPose = new IoUTracker(POSE_TRK_IOU, POSE_TRK_TTL);
+export const trackerSeg = new IoUTracker(SEG_TRK_IOU, SEG_TRK_TTL);

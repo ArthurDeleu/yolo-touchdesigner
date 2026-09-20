@@ -10,6 +10,7 @@ import {
     handleBinaryMessage,
     setWebSocketSender as setBinarySender,
 } from "./modes/binary.js";
+import { reportClientError } from "./utils/report.js";
 import {
     startWebcam,
     listWebcamDevices,
@@ -20,7 +21,13 @@ import {
     setStatus("Loading…");
 
     const baseURL = new URL(".", location.href);
-    await initSessions(baseURL);
+    let bootError = null;
+    try {
+        await initSessions(baseURL);
+    } catch (e) {
+        console.error(e);
+        bootError = e; // reported once the socket is open, below
+    }
 
     // WebSocket Setup
     const ws = new WebSocket(`ws://localhost:${WS_PORT}`);
@@ -37,11 +44,18 @@ import {
     };
 
     setBinarySender(sender);
+    window.addEventListener("error", (ev) =>
+        reportClientError("window.onerror", ev.error || ev.message),
+    );
+    window.addEventListener("unhandledrejection", (ev) =>
+        reportClientError("unhandledrejection", ev.reason),
+    );
     setWebcamSender(sender);
 
     ws.onopen = async () => {
         console.log("WebSocket connected");
         ws.send(JSON.stringify({ loaded: true }));
+        if (bootError) reportClientError("initSessions", bootError);
 
         const devices = await listWebcamDevices();
         ws.send(JSON.stringify({ webcamDevices: devices.map((d) => d.label) }));

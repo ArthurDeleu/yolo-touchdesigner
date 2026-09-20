@@ -142,6 +142,20 @@ export const SEG_SCORE_T = getNum(["Segscoret"], 0.2, "Scoret");
 export const SEG_TOPK = getInt(["Segtopk"], 100, "Topk");
 export const SEG_DECAY_LIMIT = getInt(["Segdecaylimit", "segDecayLimit"], 3);
 
+// What the integer part of the packed segmentation map encodes:
+//   "instance" -> a tracked instance id (each body keeps its own id/colour across frames)
+//   "class"    -> the COCO class id (legacy: all persons share one id)
+export const SEG_PACK_MODE = getStr(["Segpackmode", "segPackMode"], "instance");
+// Instance ids are packed into the integer part of a float32 whose fraction
+// holds the mask alpha. Float32 has a 23-bit mantissa, so the alpha resolution
+// is ulp(id): at id 4096 that is 2^-11 (fine), at id 1e6 it is 2^-3 (unusable).
+// Track ids grow monotonically for the life of the page, so wrap them.
+// Packed instance ids live in [SEG_ID_BASE, SEG_ID_WRAP): starting at 100 keeps
+// them disjoint from the 80 COCO class ids, so a value in the map is
+// unambiguous about which mode produced it (class ids never exceed 79).
+export const SEG_ID_WRAP = getInt(["Segidwrap", "segIdWrap"], 4096);
+export const SEG_ID_BASE = 100;
+
 export const POSE_SCORE_T = getNum(["Posescoret"], 0.35, "Scoret");
 export const POSE_IOU_T = getNum(["Poseiout"], 0.45, "Iout");
 export const POSE_TOPK = getInt(["Posetopk"], 50, "Topk");
@@ -151,6 +165,11 @@ export const DET_TRK_IOU = getNum(["Detrkiou"], 0.5, "Trkiou");
 export const DET_TRK_TTL = getInt(["Detrkttl"], 2, "Trkttl");
 export const POSE_TRK_IOU = getNum(["Posetrkiou"], 0.5, "Trkiou");
 export const POSE_TRK_TTL = getInt(["Posetrkttl"], 2, "Trkttl");
+// Segmentation instance tracker (only used when SEG_PACK_MODE === "instance").
+// A slightly longer TTL than det/pose: a re-id after a brief occlusion is a
+// visible colour flip on the wall, a stale box for 4 frames is not.
+export const SEG_TRK_IOU = getNum(["Segtrkiou"], 0.5, "Trkiou");
+export const SEG_TRK_TTL = getInt(["Segtrkttl"], 4, "Trkttl");
 
 // Webcam options
 export const WEBCAM_LABEL = getStr(["webcamLabel"], null);

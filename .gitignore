@@ -39,3 +39,6 @@ src/main_old.js
 /custom-yolo-models/old_models
 /custom-yolo-models/*.onnx
 /custom-yolo-models/*.pt
+
+# python bytecode from running td_scripts checks
+__pycache__/
